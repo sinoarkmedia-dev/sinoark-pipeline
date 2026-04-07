@@ -30,7 +30,7 @@ resources:
       description: Classify articles as about_ai / about_tech in articles_digest
       runtime: python3.12
       handler: fc_handler.handler
-      code: ../filter/
+      code: ../sinoark-filter/
       timeout: 150
       # filter.py enters a 60-min monitoring loop after its main pass.
       # The main pass completes in ~60-90s. FC kills the function at 150s — expected.
@@ -47,7 +47,7 @@ resources:
     actions:
       pre-deploy:
         - run: pip install -r requirements.txt -t .
-          path: ../filter/
+          path: ../sinoark-filter/
 
   # ── Translate: raw AI articles → English via Gemini (every hour at :00) ─────
   sinoark-translate:
@@ -58,7 +58,7 @@ resources:
       description: Translate raw AI articles to English via Gemini Flash (limit 50)
       runtime: python3.12
       handler: fc_handler.handler
-      code: ../translation/
+      code: ../translation-digest/
       timeout: 600
       # 50 articles × ~3s + 4×10s batch pauses ≈ 190s worst case; 600s gives headroom
       memorySize: 256
@@ -75,7 +75,7 @@ resources:
     actions:
       pre-deploy:
         - run: pip install -r requirements.txt -t .
-          path: ../translation/
+          path: ../translation-digest/
 
   # ── Digest: daily AI digest via Gemini (daily 15:00 UTC = 11pm BJT) ─────────
   sinoark-digest:
@@ -113,7 +113,7 @@ resources:
       description: Idempotent upsert articles_digest → articles_archive
       runtime: nodejs20
       handler: fc_handler_backup.handler
-      code: ../pipeline/
+      code: ../sinoark_media_wechat_pipeline/
       timeout: 300
       memorySize: 256
       environmentVariables:
@@ -128,7 +128,7 @@ resources:
     actions:
       pre-deploy:
         - run: npm install
-          path: ../pipeline/
+          path: ../sinoark_media_wechat_pipeline/
           # note: installs devDeps (tsx) — required to run TypeScript files
 
   # ── Monthly Cleanup: delete last month from digest (5th @ 02:00 UTC) ────────
@@ -140,7 +140,7 @@ resources:
       description: Delete last month from articles_digest after verifying archive
       runtime: nodejs20
       handler: fc_handler_cleanup.handler
-      code: ../pipeline/
+      code: ../sinoark_media_wechat_pipeline/
       timeout: 300
       memorySize: 256
       environmentVariables:
@@ -155,4 +155,4 @@ resources:
     actions:
       pre-deploy:
         - run: npm install
-          path: ../pipeline/
+          path: ../sinoark_media_wechat_pipeline/

@@ -117,10 +117,10 @@ fi
 # ── 6. Secrets (.env files) ───────────────────────────────────────────────────
 echo "[6/8] Checking secrets..."
 REQUIRED_ENVS=(
-  "$PIPELINE/pipeline/.env"
-  "$PIPELINE/filter/.env"
-  "$PIPELINE/translation/.env"
-  "$PIPELINE/profiles/.env"
+  "$PIPELINE/sinoark_media_wechat_pipeline/.env"
+  "$PIPELINE/sinoark-filter/.env"
+  "$PIPELINE/translation-digest/.env"
+  "$PIPELINE/sinoark-profiles/.env"
   "$PIPELINE/digest/.env"
 )
 MISSING=0
@@ -178,7 +178,7 @@ echo "[8/8] Installing pipeline dependencies..."
 cd "$PIPELINE/pipeline" && npm install --silent
 echo "  sinoark_media_wechat_pipeline: npm install done"
 
-pip3 install -q -r "$PIPELINE/translation/requirements.txt"
+pip3 install -q -r "$PIPELINE/translation-digest/requirements.txt"
 echo "  translation-digest: pip install done"
 
 pip3 install -q -r "$PIPELINE/digest/requirements.txt"
