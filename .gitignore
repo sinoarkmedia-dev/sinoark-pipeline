@@ -1,0 +1,53 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.so
+
+# Pip packages installed in-place by FC pre-deploy (pip install -r requirements.txt -t .)
+certifi/
+certifi-*/
+charset_normalizer/
+charset_normalizer-*/
+idna/
+idna-*/
+requests/
+requests-*/
+urllib3/
+urllib3-*/
+dotenv/
+python_dotenv-*/
+google/
+google_genai-*/
+google_ai_generativelanguage-*/
+supabase-*/
+gotrue-*/
+httpx-*/
+postgrest-*/
+realtime-*/
+storage3-*/
+beautifulsoup4-*/
+soupsieve-*/
+bs4/
+anyio-*/
+h11-*/
+httpcore-*/
+annotated_types-*/
+pydantic-*/
+pydantic_core-*/
+sniffio-*/
+typing_extensions-*/
+bin/
+*.dist-info/
+
+# Secrets — never commit .env files
+.env
+.env.*
+!.env.example
+
+# Build artifacts
+.next/
+dist/
+build/

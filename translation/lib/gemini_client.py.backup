@@ -1,0 +1,117 @@
+"""
+Gemini API client for translating Chinese WeChat articles into English.
+"""
+
+import json
+import os
+import re
+
+from google import genai
+from google.genai import types
+from dotenv import load_dotenv
+
+load_dotenv()
+
+_client: genai.Client | None = None
+
+
+def _init_client() -> genai.Client:
+    global _client
+    if _client is None:
+        api_key = os.environ.get("GEMINI_API_KEY")
+        if not api_key:
+            raise ValueError("GEMINI_API_KEY environment variable is not set")
+        _client = genai.Client(api_key=api_key)
+    return _client
+
+
+SYSTEM_PROMPT = (
+    "You are a professional translator and editor specializing in Chinese AI and technology news. "
+    "Your task is to translate Chinese WeChat articles into clear, accurate English for a technically "
+    "literate English-speaking audience. Preserve technical terms, product names, and company names "
+    "accurately. Write in a journalistic style suitable for an AI/tech newsletter."
+)
+
+TRANSLATION_PROMPT_TEMPLATE = """\
+Source publication: {source_name}
+
+Translate the following Chinese article and produce a structured JSON response.
+
+Title: {title}
+
+Content:
+{content_section}
+
+Respond with ONLY a valid JSON object in this exact format (no markdown fencing, no extra text):
+{{
+  "translated_title": "<English translation of the title>",
+  "translated_summary": "<150-200 word English summary of the article>"
+}}
+
+Requirements for translated_summary:
+- 150 to 200 words, no more, no less
+- Written in clear, engaging English for a tech-savvy audience
+- Capture the key points, findings, and significance of the article
+- Do not start with phrases like "This article" or "The article"
+"""
+
+
+def translate_article(title: str, content: str, source_name: str) -> dict | None:
+    """
+    Translate a Chinese WeChat article title and content into English.
+
+    Args:
+        title: The original Chinese article title.
+        content: The original Chinese article body (may be empty).
+        source_name: The name of the WeChat source/publication for context.
+
+    Returns:
+        A dict with keys 'translated_title' (str) and 'translated_summary' (str),
+        or None if translation fails.
+    """
+    _init_client()
+
+    if content and content.strip():
+        content_section = content.strip()
+    else:
+        content_section = "(No article body provided — base the summary on the title only.)"
+
+    prompt = TRANSLATION_PROMPT_TEMPLATE.format(
+        source_name=source_name or "Unknown",
+        title=title.strip(),
+        content_section=content_section,
+    )
+
+    try:
+        client = _init_client()
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            config=types.GenerateContentConfig(system_instruction=SYSTEM_PROMPT),
+            contents=prompt,
+        )
+        raw_text = response.text.strip()
+
+        # Strip accidental markdown code fences if the model includes them
+        raw_text = re.sub(r"^```(?:json)?\s*", "", raw_text)
+        raw_text = re.sub(r"\s*```$", "", raw_text)
+
+        result = json.loads(raw_text)
+
+        translated_title = result.get("translated_title", "").strip()
+        translated_summary = result.get("translated_summary", "").strip()
+
+        if not translated_title or not translated_summary:
+            print(f"[gemini] Incomplete response for title: {title[:60]!r}")
+            return None
+
+        return {
+            "translated_title": translated_title,
+            "translated_summary": translated_summary,
+        }
+
+    except json.JSONDecodeError as exc:
+        print(f"[gemini] JSON parse error for title {title[:60]!r}: {exc}")
+        return None
+    except Exception as exc:
+        print(f"[gemini] Unexpected error for title {title[:60]!r}: {exc}")
+        return None

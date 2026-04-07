@@ -1,0 +1,158 @@
+edition: 3.0.0
+name: sinoark-fc
+access: default
+
+# Alibaba Cloud Function Compute deployment — stateless cron jobs
+# Jobs that require Docker/SQLite (wechat-scrape, container-sync, fetch-new,
+# sync-sources, historical-backfill, generate_profiles) stay on ECS.
+#
+# Prerequisites:
+#   npm install -g @serverless-devs/s
+#   s config add  (set your Alibaba Cloud AccessKey ID + Secret)
+#
+# Required env vars before deploying:
+#   export SUPABASE_URL=...
+#   export SUPABASE_SERVICE_KEY=...
+#   export GEMINI_API_KEY=...
+#
+# Deploy all:  s deploy
+# Deploy one:  s sinoark-filter deploy
+# View logs:   s sinoark-filter logs
+
+resources:
+
+  # ── Filter: classify about_ai / about_tech (every hour at :20) ──────────────
+  sinoark-filter:
+    component: fc3
+    props:
+      region: ap-southeast-1
+      functionName: sinoark-filter
+      description: Classify articles as about_ai / about_tech in articles_digest
+      runtime: python3.12
+      handler: fc_handler.handler
+      code: ../filter/
+      timeout: 150
+      # filter.py enters a 60-min monitoring loop after its main pass.
+      # The main pass completes in ~60-90s. FC kills the function at 150s — expected.
+      memorySize: 512
+      environmentVariables:
+        SUPABASE_URL: ${env('SUPABASE_URL')}
+        SUPABASE_SERVICE_KEY: ${env('SUPABASE_SERVICE_KEY')}
+      triggers:
+        - triggerName: sinoark-filter-timer
+          triggerType: timer
+          triggerConfig:
+            cronExpression: '0 20 * * * *'
+            enable: true
+    actions:
+      pre-deploy:
+        - run: pip install -r requirements.txt -t .
+          path: ../filter/
+
+  # ── Translate: raw AI articles → English via Gemini (every hour at :00) ─────
+  sinoark-translate:
+    component: fc3
+    props:
+      region: ap-southeast-1
+      functionName: sinoark-translate
+      description: Translate raw AI articles to English via Gemini Flash (limit 50)
+      runtime: python3.12
+      handler: fc_handler.handler
+      code: ../translation/
+      timeout: 600
+      # 50 articles × ~3s + 4×10s batch pauses ≈ 190s worst case; 600s gives headroom
+      memorySize: 256
+      environmentVariables:
+        SUPABASE_URL: ${env('SUPABASE_URL')}
+        SUPABASE_SERVICE_KEY: ${env('SUPABASE_SERVICE_KEY')}
+        GEMINI_API_KEY: ${env('GEMINI_API_KEY')}
+      triggers:
+        - triggerName: sinoark-translate-timer
+          triggerType: timer
+          triggerConfig:
+            cronExpression: '0 0 * * * *'
+            enable: true
+    actions:
+      pre-deploy:
+        - run: pip install -r requirements.txt -t .
+          path: ../translation/
+
+  # ── Digest: daily AI digest via Gemini (daily 15:00 UTC = 11pm BJT) ─────────
+  sinoark-digest:
+    component: fc3
+    props:
+      region: ap-southeast-1
+      functionName: sinoark-digest
+      description: Generate daily AI digest HTML via Gemini Flash
+      runtime: python3.12
+      handler: fc_handler.handler
+      code: ../digest/
+      timeout: 300
+      memorySize: 512
+      environmentVariables:
+        SUPABASE_URL: ${env('SUPABASE_URL')}
+        SUPABASE_SERVICE_KEY: ${env('SUPABASE_SERVICE_KEY')}
+        GEMINI_API_KEY: ${env('GEMINI_API_KEY')}
+      triggers:
+        - triggerName: sinoark-digest-timer
+          triggerType: timer
+          triggerConfig:
+            cronExpression: '0 0 15 * * *'
+            enable: true
+    actions:
+      pre-deploy:
+        - run: pip install -r requirements.txt -t .
+          path: ../digest/
+
+  # ── Daily Backup: digest → archive upsert (daily 15:59 UTC = 11:59pm BJT) ───
+  sinoark-daily-backup:
+    component: fc3
+    props:
+      region: ap-southeast-1
+      functionName: sinoark-daily-backup
+      description: Idempotent upsert articles_digest → articles_archive
+      runtime: nodejs20
+      handler: fc_handler_backup.handler
+      code: ../pipeline/
+      timeout: 300
+      memorySize: 256
+      environmentVariables:
+        SUPABASE_URL: ${env('SUPABASE_URL')}
+        SUPABASE_SERVICE_KEY: ${env('SUPABASE_SERVICE_KEY')}
+      triggers:
+        - triggerName: sinoark-backup-timer
+          triggerType: timer
+          triggerConfig:
+            cronExpression: '0 59 15 * * *'
+            enable: true
+    actions:
+      pre-deploy:
+        - run: npm install
+          path: ../pipeline/
+          # note: installs devDeps (tsx) — required to run TypeScript files
+
+  # ── Monthly Cleanup: delete last month from digest (5th @ 02:00 UTC) ────────
+  sinoark-monthly-cleanup:
+    component: fc3
+    props:
+      region: ap-southeast-1
+      functionName: sinoark-monthly-cleanup
+      description: Delete last month from articles_digest after verifying archive
+      runtime: nodejs20
+      handler: fc_handler_cleanup.handler
+      code: ../pipeline/
+      timeout: 300
+      memorySize: 256
+      environmentVariables:
+        SUPABASE_URL: ${env('SUPABASE_URL')}
+        SUPABASE_SERVICE_KEY: ${env('SUPABASE_SERVICE_KEY')}
+      triggers:
+        - triggerName: sinoark-cleanup-timer
+          triggerType: timer
+          triggerConfig:
+            cronExpression: '0 0 2 5 * *'
+            enable: true
+    actions:
+      pre-deploy:
+        - run: npm install
+          path: ../pipeline/

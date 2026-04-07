@@ -1,0 +1,34 @@
+# === SinoArk Cron Schedule ===
+PIPELINE=/root/workspace/sinoark-pipeline/pipeline
+
+# Jobs on Function Compute (FC) — managed via sinoark-pipeline/deploy/s.yaml:
+#   sinoark-filter       → every hour at :20   (filter/filter.py)
+#   sinoark-translate    → every hour at :00   (translation/scripts/translate_batch.py)
+#   sinoark-digest       → daily 15:00 UTC     (digest/generate_digest.py)
+#   sinoark-daily-backup → daily 15:59 UTC     (pipeline/digest/daily-backup.ts)
+#   sinoark-monthly-cleanup → 5th @ 02:00 UTC  (pipeline/digest/monthly-cleanup.ts)
+
+# 1. WeChat scrape — fetch latest articles per feed across all 3 containers (every 4h)
+0 */4 * * * /root/workspace/sinoark-pipeline/scripts/wechat-scrape.sh >> /var/log/sinoark-scrape.log 2>&1
+
+# 2. WeChat push — sync all containers SQLite → Supabase articles_digest (every hour at :15)
+15 * * * * cd /root/workspace/sinoark-pipeline/pipeline && node --no-warnings=ExperimentalWarning --import tsx/esm sync/container-sync.ts >> /var/log/sinoark-container-sync.log 2>&1
+
+# 3. Fetch new articles into digest table (every 30 min, offset from container-sync)
+*/30 * * * * cd /root/workspace/sinoark-pipeline/pipeline && node --no-warnings=ExperimentalWarning --import tsx/esm digest/fetch-new.ts >> /var/log/sinoark-fetch.log 2>&1
+
+# 4. Sources: sync feeds → Supabase every 2 hours (auto-registers new accounts)
+0 */2 * * * cd /root/workspace/sinoark-pipeline/pipeline && node --no-warnings=ExperimentalWarning --import tsx/esm sources/sync-sources.ts >> /var/log/sinoark-sources.log 2>&1
+
+# 5. Archive: sync historical articles every 3 hours
+0 */3 * * * cd /root/workspace/sinoark-pipeline/pipeline && node --no-warnings=ExperimentalWarning --import tsx/esm archive/historical-backfill.ts >> /var/log/sinoark-archive.log 2>&1
+
+# 6. Ensure log dirs exist on reboot
+@reboot mkdir -p /var/log /tmp/sinoark-logs
+
+# 7. Daily profiles — company/person/product via Claude Haiku (11:30pm BJT = 15:30 UTC)
+30 15 * * * cd /root/workspace/sinoark-pipeline/profiles && python3 generate_profiles.py >> /var/log/sinoark-profiles.log 2>&1
+
+# 8. OSS backup — SQLite databases + .env files (daily 03:00 UTC)
+# Uncomment after setting up ossutil and setting OSS_BUCKET:
+# 0 3 * * * OSS_BUCKET=YOUR_BUCKET_NAME /root/workspace/sinoark-pipeline/scripts/backup-to-oss.sh >> /var/log/sinoark-backup-oss.log 2>&1

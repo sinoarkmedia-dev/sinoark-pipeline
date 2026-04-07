@@ -1,0 +1,37 @@
+{
+  "name": "sinoark-media-wechat-pipeline",
+  "version": "1.0.0",
+  "description": "SinoArk WeChat media pipeline — sources, digest, archive, sync",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "add-source": "node --no-warnings=ExperimentalWarning --import tsx/esm sources/add-source.ts",
+    "rename-source": "node --no-warnings=ExperimentalWarning --import tsx/esm sources/rename-source.ts",
+    "list-sources": "node --no-warnings=ExperimentalWarning --import tsx/esm sources/list-sources.ts",
+    "sync-sources": "node --no-warnings=ExperimentalWarning --import tsx/esm sources/sync-sources.ts",
+    "fetch-new": "node --no-warnings=ExperimentalWarning --import tsx/esm digest/fetch-new.ts",
+    "digest-new-source": "node --no-warnings=ExperimentalWarning --import tsx/esm digest/new-source-backfill.ts",
+    "daily-backup":   "node --no-warnings=ExperimentalWarning --import tsx/esm digest/daily-backup.ts",
+    "monthly-backup": "node --no-warnings=ExperimentalWarning --import tsx/esm digest/monthly-backup.ts",
+    "monthly-cleanup": "node --no-warnings=ExperimentalWarning --import tsx/esm digest/monthly-cleanup.ts",
+    "historical-backfill": "node --no-warnings=ExperimentalWarning --import tsx/esm archive/historical-backfill.ts",
+    "archive-new-source": "node --no-warnings=ExperimentalWarning --import tsx/esm archive/new-source-archive.ts",
+    "container-sync": "node --no-warnings=ExperimentalWarning --import tsx/esm sync/container-sync.ts"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "@supabase/supabase-js": "^2.100.1",
+    "axios": "^1.14.0",
+    "commander": "^12.1.0",
+    "dotenv": "^16.4.7",
+    "rss-parser": "^3.13.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.0"
+  }
+}
