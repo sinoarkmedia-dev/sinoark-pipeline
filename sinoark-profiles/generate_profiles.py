@@ -53,7 +53,13 @@ def db():
 
 
 def fetch_todays_articles(date_str: str) -> list[dict]:
-    """Fetch about_ai articles published in the 24h window ending 11pm BJT on date_str."""
+    """Fetch China-AI articles in the 24h window ending 11pm BJT on date_str.
+
+    Matches the digest pipeline's scope: about_ai=True AND china_related=True.
+    Without the china_related filter, the daily company/person/product picks
+    drift to foreign entities (OpenAI, Sam Altman, etc.) reported on by
+    Chinese sources, which conflicts with the SinoArk China-only positioning.
+    """
     target = datetime.strptime(date_str, '%Y-%m-%d').replace(tzinfo=BEIJING_TZ)
     end_bj = target.replace(hour=23, minute=0, second=0, microsecond=0)
     start_bj = end_bj - timedelta(hours=24)
@@ -67,12 +73,13 @@ def fetch_todays_articles(date_str: str) -> list[dict]:
         .gte('published_at', start_utc)
         .lt('published_at', end_utc)
         .eq('about_ai', True)
+        .eq('china_related', True)
         .order('published_at', desc=True)
         .limit(MAX_ARTICLES_IN)
         .execute()
     )
     articles = res.data or []
-    print(f'  → {len(articles)} articles found')
+    print(f'  → {len(articles)} China-AI articles found')
     return articles
 
 
@@ -148,12 +155,27 @@ IDENTIFY_SYSTEM = (
 )
 
 IDENTIFY_PROMPT = """\
-Today is {date_bj}. Below are {num_articles} Chinese AI/technology news articles published today.
+Today is {date_bj}. Below are {num_articles} Chinese AI/technology news articles
+published today, pre-filtered to be specifically about CHINA.
 
-Identify exactly ONE subject per category that is most prominently discussed across multiple articles:
-- company: a business organization (e.g. ByteDance, Huawei, Baidu, Alibaba, OpenAI, Nvidia, Anthropic)
-- person: a specific named individual (e.g. Sam Altman, Ren Zhengfei, Yann LeCun, Lei Jun)
-- product: a specific software, AI model, hardware device, or named service (e.g. DeepSeek-V3, Claude, Sora, iPhone)
+Identify exactly ONE subject per category that is most prominently discussed
+across multiple articles. STRICT RULES:
+- company: a CHINESE business organization headquartered in mainland China,
+   Hong Kong, Macau, or a Chinese state-affiliated entity (e.g. ByteDance,
+   Huawei, Baidu, Alibaba, DeepSeek, Tencent, Xiaomi, BYD, SMIC).
+   Foreign multinationals (OpenAI, Anthropic, Google, DeepMind, Meta, Microsoft,
+   Apple, Tesla, Nvidia, etc.) DO NOT QUALIFY.
+- person: a CHINESE individual or someone primarily affiliated with a Chinese
+   institution (e.g. Ren Zhengfei, Lei Jun, Robin Li, Liang Wenfeng, Yang Zhilin).
+   Foreign executives (Sam Altman, Dario Amodei, Demis Hassabis, Sundar Pichai,
+   Tim Cook, Elon Musk, Jensen Huang, etc.) DO NOT QUALIFY.
+- product: a CHINESE-developed software, AI model, hardware device, or named
+   service (e.g. DeepSeek-V3, Doubao, Qwen, Wenxin, HarmonyOS, Kunlun chip).
+   Non-Chinese products (ChatGPT, Claude, Sora, iPhone) DO NOT QUALIFY.
+
+If no clear Chinese candidate exists for a category, set "name" to null and
+"reason" to a short explanation. Do NOT substitute a foreign entity to fill
+the slot.
 
 EXCLUDE these subjects (already profiled recently):
 {excluded}
@@ -164,19 +186,19 @@ ARTICLES (numbered):
 Return ONLY this JSON structure (no other text):
 {{
   "company": {{
-    "name": "English name",
+    "name": "English name or null",
     "name_zh": "Chinese name or null",
     "article_indices": [1, 3, 5],
     "reason": "one sentence"
   }},
   "person": {{
-    "name": "English name",
+    "name": "English name or null",
     "name_zh": "Chinese name or null",
     "article_indices": [2, 4],
     "reason": "one sentence"
   }},
   "product": {{
-    "name": "English name",
+    "name": "English name or null",
     "name_zh": "Chinese name or null",
     "article_indices": [1, 6],
     "reason": "one sentence"
