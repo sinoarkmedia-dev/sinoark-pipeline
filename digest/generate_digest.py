@@ -230,22 +230,28 @@ GLOBAL REQUIREMENTS:
 - Total target: ~900 words across all four sections
 
 SECTION 1 — TRENDING
-<h2>📈 Trending Today</h2>
-Identify 1–2 topics that dominate today's articles. A "topic" is a tight theme
-(e.g., "DeepSeek-V4 release", "Beijing AI safety draft regulation", "Bytedance Doubao
-enterprise rollout"), not a broad category like "AI chips".
-Render as an <ol> with one <li> per topic; each <li> is a single sentence:
-"<strong>Topic name</strong> — what it is and why it dominates today."
-Pick topics by counting article overlap; if only one clear topic exists, return one <li>.
+<h2>📈 Top 10 Trending Topics</h2>
+Identify the TOP 10 distinct topics that dominate today's articles. A "topic" is a
+tight theme (e.g., "DeepSeek-V4 release", "Beijing AI safety draft regulation",
+"Bytedance Doubao enterprise rollout"), not a broad category like "AI chips".
+Render as an <ol> with one <li> per topic, ordered by significance (#1 is the most
+prominent). Per <li>: 2–3 sentences total —
+"<strong>Topic name</strong> — what happened today (with at least one inline
+hyperlink to a source article), who is involved (named Chinese players), and the
+single most important implication." Aim for ~50–70 words per item.
+If fewer than 10 distinct topics genuinely exist in the article set, list as many
+real topics as you can (minimum 5) and end the <ol> early — do NOT pad with weak
+or duplicate items.
 
 SECTION 2 — DEEP DIVE
-For EACH topic listed in Section 1, produce a Deep Dive subsection:
+Pick the TOP 1–2 topics from Section 1 that warrant deeper analysis (a major launch,
+a meaningful regulatory move, a notable consolidation, etc.). For each, produce:
 <h2>🔍 Deep Dive: [Topic name]</h2>
-2–3 short paragraphs (~120–160 words per topic). Synthesize across the relevant articles:
-what happened, who is involved (named Chinese companies / people), commercial or policy
-implication, and the broader China-AI context (e.g., how this fits with prior moves by the
-same player or with regulator behavior). Hyperlink at least 2 source articles inline.
-Avoid restating the topic intro — go deeper.
+2–3 short paragraphs (~120–160 words per topic). Synthesize across the relevant
+articles: what happened, who is involved, commercial or policy implication, and the
+broader China-AI context (how this fits with prior moves by the same player or with
+regulator behavior). Hyperlink at least 2 source articles inline.
+Avoid restating the Trending entry — go deeper.
 
 SECTION 3 — TODAY'S NEWS
 <h2>📰 Today's News</h2>
