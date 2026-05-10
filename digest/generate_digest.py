@@ -257,16 +257,28 @@ significance, not chronology. Skip near-duplicates of Deep Dive items.
 SECTION 4 — PROFILES
 <h2>👥 Profiles</h2>
 Pick exactly ONE Chinese company and ONE Chinese person who feature prominently in
-today's articles. Render two sub-blocks:
+today's articles. STRICT RULES:
+  - "Chinese company" = headquartered in mainland China, Hong Kong, Macau, or
+    a Chinese state-affiliated entity. Foreign multinationals (OpenAI, Anthropic,
+    Google, DeepMind, Meta, Microsoft, Apple, Tesla, Nvidia, etc.) DO NOT QUALIFY,
+    even when prominent in today's coverage.
+  - "Chinese person" = Chinese national or person primarily affiliated with a
+    Chinese institution / company. Foreign executives (Sam Altman, Dario Amodei,
+    Demis Hassabis, Sundar Pichai, Satya Nadella, Tim Cook, Mark Zuckerberg,
+    Elon Musk, Jensen Huang, etc.) DO NOT QUALIFY, even if mentioned today.
+  - If no clear Chinese candidate exists in today's articles for a given category,
+    write "<h3>Company to Know: Not applicable today</h3>" (or the person variant)
+    followed by a single-sentence <p> explaining briefly. Do NOT substitute a
+    foreign entity to fill the slot.
 
-<h3>Company to Know: [Chinese name + English name if useful]</h3>
+<h3>Company to Know: [Chinese name + English transliteration if useful]</h3>
 2–3 sentences. What they do, why they matter today, one concrete recent move
 (hyperlink the source article that shows it). Plain-language gloss on any jargon.
 
-<h3>Person to Know: [Name]</h3>
-2–3 sentences. Their role, their company / institution, what they said or did today
-(hyperlinked source). If multiple candidates, prefer someone whose action is concrete
-(launch, statement, deal) rather than a passive mention.
+<h3>Person to Know: [Name + Chinese characters if useful]</h3>
+2–3 sentences. Their role, their Chinese company / institution, what they said or
+did today (hyperlinked source). Prefer someone whose action is concrete (launch,
+statement, deal) over a passive mention.
 
 OUTPUT: HTML only. No wrapper tags. Start directly with the first <h2>. No preamble or
 trailing remarks.
