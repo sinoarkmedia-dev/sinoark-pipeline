@@ -2,11 +2,11 @@
 """
 sinoark-filter/filter.py
 
-Classifies articles with about_tech & about_ai tags using two-pass logic:
-  1. Source flag  — if source.about_ai=True, all its articles are about_ai=True (strong prior)
-  2. Keyword scan — check each article's title + summary for AI/tech keywords
-                    so articles from general-purpose sources (虎嗅, 财经, etc.)
-                    are correctly tagged even if the source itself isn't AI-dedicated.
+Classifies articles with about_tech, about_ai, AND china_related tags.
+  - about_ai / about_tech:  source flag (strong prior) OR keyword match on title+summary.
+  - china_related:          subject-based — true ONLY when the article is *specifically*
+                             about a Chinese company/person/entity/locality. A Chinese-source
+                             article reporting on OpenAI is china_related=False.
 
 Processes newest-first, offset-paginated over full table.
 After completing, re-checks every 60 min for new unfiltered articles.
@@ -31,6 +31,10 @@ SUPABASE_KEY = os.environ["SUPABASE_SERVICE_KEY"]
 PAGE_SIZE            = 1000  # articles fetched per DB query
 DB_WRITE_WORKERS     = 8     # parallel PATCH threads
 NEW_ARTICLE_INTERVAL = 300   # seconds between "new articles" priority checks
+
+# Hard floor: only classify articles published on/after May 1, 2026 BJT.
+# Keeps the pre-relaunch backlog (~668 about_ai rows from April 3) frozen as-is.
+MIN_PUBLISHED_AT     = "2026-04-30T16:00:00Z"
 
 logging.basicConfig(
     level=logging.INFO,
@@ -81,7 +85,11 @@ def total_articles():
     r = _sb.get(
         f"{SUPABASE_URL}/rest/v1/articles_digest",
         headers={"Prefer": "count=exact"},
-        params={"select": "id", "limit": "1"},
+        params={
+            "select": "id",
+            "limit": "1",
+            "published_at": f"gte.{MIN_PUBLISHED_AT}",
+        },
         timeout=120,
     )
     cr = r.headers.get("content-range", "0/0")
@@ -94,7 +102,12 @@ def count_unfiltered():
     r = _sb.get(
         f"{SUPABASE_URL}/rest/v1/articles_digest",
         headers={"Prefer": "count=exact"},
-        params={"select": "id", "or": "(about_tech.is.null,about_ai.is.null)", "limit": "1"},
+        params={
+            "select": "id",
+            "or": "(about_tech.is.null,about_ai.is.null,china_related.is.null)",
+            "published_at": f"gte.{MIN_PUBLISHED_AT}",
+            "limit": "1",
+        },
         timeout=30,
     )
     cr = r.headers.get("content-range", "0/0")
@@ -104,19 +117,21 @@ def count_unfiltered():
         return 0
 
 def fetch_page(offset):
-    """Fetch a page of ALL articles ordered newest-first."""
+    """Fetch a page of articles (>= MIN_PUBLISHED_AT) ordered newest-first."""
     return sb_get("articles_digest", {
-        "select": "id,source_id,original_title,original_summary,published_at",
+        "select": "id,source_id,source_name,original_title,original_summary,published_at",
         "order":  "published_at.desc",
         "limit":  str(PAGE_SIZE),
         "offset": str(offset),
+        "published_at": f"gte.{MIN_PUBLISHED_AT}",
     }, timeout=120)
 
 def fetch_unfiltered(limit=PAGE_SIZE):
-    """For monitoring mode: only articles still missing tags."""
+    """For monitoring mode: only articles still missing tags (>= MIN_PUBLISHED_AT)."""
     return sb_get("articles_digest", {
-        "select": "id,source_id,original_title,original_summary,published_at",
-        "or":     "(about_tech.is.null,about_ai.is.null)",
+        "select": "id,source_id,source_name,original_title,original_summary,published_at",
+        "or":     "(about_tech.is.null,about_ai.is.null,china_related.is.null)",
+        "published_at": f"gte.{MIN_PUBLISHED_AT}",
         "order":  "published_at.desc",
         "limit":  str(limit),
     })
@@ -175,7 +190,7 @@ AI_STRONG = {
     "文心一言", "通义千问", "豆包", "混元", "讯飞星火", "kimi", "月之暗面",
     "minimax", "零一万物", "智谱", "glm", "商汤", "依图", "旷视",
     # AI technical ops
-    "模型训练", "模型推理", "微调", "fine-tun", "rag", "向量数据库",
+    "模型训练", "模型推理", "微调", "fine-tune", "向量数据库",
     "提示词", "prompt", "token", "transformer",
     # AI applications
     "自动驾驶", "智能驾驶", "无人驾驶",
@@ -220,6 +235,138 @@ def is_tech_article(text: str) -> bool:
     return any(kw in t for kw in TECH_STRONG)
 
 
+# ── China-specificity classifier ──────────────────────────────────────────────
+#
+# Logic: an article is china_related ONLY if it is specifically about a Chinese
+# company / person / institution / locality / market / policy. A Chinese-source
+# article that reports on OpenAI or Anthropic is NOT china_related.
+#
+# Rules (applied in order):
+#   1. Any CHINA_STRONG hit  → True   (DeepSeek, Baidu, 百度, 中国, 工信部, …)
+#   2. Any FOREIGN_ONLY hit, no CHINA_STRONG hit → False  (OpenAI / GPT-5 / Sam Altman)
+#   3. Otherwise              → False  (be conservative on general/ambiguous topics)
+
+# Subjects that anchor an article to China. Match is case-insensitive substring.
+# Mix of pinyin / simplified Chinese / common English transliterations.
+CHINA_STRONG = {
+    # Chinese AI companies & products (most active in WeChat coverage)
+    "deepseek", "deep seek", "深度求索", "梁文锋",
+    "通义千问", "通义", "千问", "qwen", "阿里云", "alibaba cloud",
+    "文心一言", "文心", "ernie",
+    "豆包", "字节跳动", "字节", "bytedance", "tiktok china", "doubao", "火山引擎",
+    "混元", "腾讯", "tencent", "微信", "wechat",
+    "kimi", "月之暗面", "moonshot", "杨植麟",
+    "智谱", "glm", "智谱清言", "chatglm",
+    "minimax", "稀宇", "海螺",
+    "零一万物", "01.ai", "yi-",
+    "讯飞", "iflytek", "星火", "刘庆峰",
+    "商汤", "sensetime",
+    "旷视", "megvii",
+    "依图", "yitu",
+    "百度", "baidu", "李彦宏", "robin li", "百度智能云", "apollo",
+    "阿里巴巴", "alibaba", "蚂蚁", "ant group", "马云", "jack ma",
+    "京东", "jd.com", "刘强东", "richard liu",
+    "美团", "meituan", "王兴",
+    "拼多多", "pinduoduo", "黄峥",
+    "滴滴", "didi",
+    "小米", "xiaomi", "雷军", "lei jun",
+    "华为", "huawei", "任正非", "ren zhengfei", "孟晚舟", "鸿蒙", "harmonyos",
+    "比亚迪", "byd",
+    "蔚来", "nio",
+    "小鹏", "xpeng",
+    "理想", "li auto", "理想汽车",
+    "极氪", "zeekr",
+    "宁德时代", "catl",
+    "中芯国际", "smic",
+    "海光", "海思", "hisilicon",
+    "地平线", "horizon robotics",
+    "寒武纪", "cambricon",
+    "壁仞", "biren",
+    "燧原", "enflame",
+    "摩尔线程", "moore threads",
+    "群核", "manycore",
+    "傅利叶", "fourier intelligence",
+    "宇树", "unitree",
+    "智元", "agibot",
+    "银河", "galaxea",
+    "面壁", "modelbest",
+    "百川", "baichuan", "王小川",
+
+    # Chinese government / policy / regulators
+    "中国", " china ", " china,", " china.", " china'", " china—", " china'",
+    "工信部", "miit", "网信办", "cac", "cyberspace administration",
+    "国务院", "state council", "中央", "中共", "中国共产党", "communist party",
+    "央行", "people's bank of china", "pboc",
+    "证监会", "csrc", "国资委", "sasac",
+    "习近平", "xi jinping", "李强", "li qiang",
+    "发改委", "ndrc",
+
+    # Chinese cities & regions (high-signal in tech context)
+    "北京", "beijing", "上海", "shanghai", "深圳", "shenzhen",
+    "杭州", "hangzhou", "广州", "guangzhou", "成都", "chengdu",
+    "苏州", "suzhou", "南京", "nanjing", "西安", "xi'an",
+    "重庆", "chongqing", "天津", "tianjin", "武汉", "wuhan",
+    "合肥", "hefei", "厦门", "xiamen",
+    "香港", "hong kong", "澳门", "macau",
+    "中关村", "zhongguancun",
+    "雄安", "xiong'an", "粤港澳", "greater bay",
+
+    # Chinese markets / finance ecosystem
+    "a股", "a-share", "港股", "hong kong stock", "沪深", "上证", "深证",
+    "创业板", "chinext", "科创板", "star market", "sse", "szse",
+    "国资", "国企", "soes", "央企",
+
+    # Chinese universities / research institutes
+    "清华", "tsinghua", "北大", "peking university", "pku",
+    "复旦", "fudan", "浙大", "zhejiang university", "上交大", "sjtu",
+    "中科院", "chinese academy of sciences", "cas",
+    "中科大", "ustc", "哈工大", "hit",
+    "之江实验室", "zhejiang lab", "上海ai实验室", "shanghai ai laboratory",
+    "智源", "baai",
+
+    # General "Chinese" markers
+    "国产", "国内", "国货", "国家队",
+    "中文", "汉语", "汉字",
+    "亚运", "奥运", "全运",
+    "央视", "cctv", "新华社", "xinhua", "人民日报", "people's daily",
+}
+
+# Foreign-anchored subjects. Used to push toward False when no China signal exists.
+# Deliberately narrow — we don't want false negatives on Chinese coverage of these.
+FOREIGN_ONLY = {
+    "openai", "chatgpt", "gpt-3", "gpt-4", "gpt-5", "sora",
+    "anthropic", "claude", "dario amodei", "mira murati", "ilya sutskever",
+    "sam altman", "altman",
+    "google deepmind", "deepmind", "gemini", "sundar pichai", "demis hassabis",
+    "meta ai", "llama", "mark zuckerberg",
+    "microsoft", "satya nadella", "github copilot", "azure ai",
+    "apple intelligence", "tim cook",
+    "tesla", "spacex", "elon musk", "xai", "grok",
+    "nvidia", "jensen huang",
+    "amazon", "aws bedrock", "andy jassy",
+    "perplexity", "stability ai", "stable diffusion", "midjourney",
+    "cohere", "hugging face",
+    "white house", "biden", "trump", "u.s. congress", "us senate",
+    "european commission", "eu ai act",
+}
+
+
+def is_china_article(text: str) -> bool:
+    """
+    True if the article subject is specifically Chinese (company / person /
+    institution / locality / policy). Returns False for general AI topics,
+    pure US/EU coverage, and anything ambiguous.
+    """
+    t = (text or "").lower()
+    if any(kw in t for kw in CHINA_STRONG):
+        return True
+    # Foreign-anchored with no China signal → not china_related
+    if any(kw in t for kw in FOREIGN_ONLY):
+        return False
+    # Default: ambiguous → conservative False
+    return False
+
+
 # ── Per-article tagging ────────────────────────────────────────────────────────
 
 def process_page(articles, source_maps):
@@ -237,6 +384,7 @@ def process_page(articles, source_maps):
     ai_from_keywords = 0
     tech_from_source = 0
     tech_from_keywords = 0
+    china_hits = 0
 
     for art in articles:
         src   = lookup_source(art, by_id, by_name, by_name_norm)
@@ -263,12 +411,24 @@ def process_page(articles, source_maps):
             if tech:
                 tech_from_keywords += 1
 
-        rows.append({"id": art["id"], "about_tech": tech, "about_ai": ai})
+        # china_related: subject-based, source-agnostic.
+        # A Chinese WeChat account reporting on OpenAI is NOT china_related.
+        china = is_china_article(text)
+        if china:
+            china_hits += 1
+
+        rows.append({
+            "id": art["id"],
+            "about_tech": tech,
+            "about_ai": ai,
+            "china_related": china,
+        })
 
     log.info(
         f"  [classify] {len(rows)} articles → "
         f"ai: {ai_from_source} from source + {ai_from_keywords} from keywords | "
-        f"tech: {tech_from_source} from source + {tech_from_keywords} from keywords"
+        f"tech: {tech_from_source} from source + {tech_from_keywords} from keywords | "
+        f"china: {china_hits}"
     )
     return rows
 

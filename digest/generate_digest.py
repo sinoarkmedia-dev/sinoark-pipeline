@@ -84,7 +84,11 @@ def get_digest_window(target_date: Optional[str] = None) -> tuple[datetime, date
 # ── Article fetching ─────────────────────────────────────────────────────────
 
 def fetch_articles_from_supabase(client, start_utc: datetime, end_utc: datetime) -> list[dict]:
-    """Fetch articles in the time window from Supabase."""
+    """Fetch articles in the time window from Supabase.
+
+    Filter: about_ai=True AND china_related=True. The digest is *only* about
+    Chinese AI subjects — not general AI concepts and not pure US/EU coverage.
+    """
     print(f'Fetching articles: {start_utc.strftime("%Y-%m-%d %H:%M")} → {end_utc.strftime("%Y-%m-%d %H:%M")} UTC')
 
     res = (
@@ -97,12 +101,13 @@ def fetch_articles_from_supabase(client, start_utc: datetime, end_utc: datetime)
         .gte('published_at', start_utc.isoformat())
         .lt('published_at', end_utc.isoformat())
         .eq('about_ai', True)
+        .eq('china_related', True)
         .order('published_at', desc=True)
         .execute()
     )
 
     articles = res.data or []
-    print(f'  → Found {len(articles)} articles in window')
+    print(f'  → Found {len(articles)} China-AI articles in window')
     return articles
 
 
@@ -179,13 +184,19 @@ SYSTEM_PROMPT = (
     "You are a senior China AI analyst and technology journalist writing for an "
     "international English-speaking audience. You have deep expertise in Chinese AI "
     "companies, policy, research, and industry applications.\n\n"
+    "SCOPE — IMPORTANT:\n"
+    "- This digest is exclusively about CHINA — Chinese AI companies, Chinese AI products, "
+    "Chinese AI people, Chinese policy and markets. Even when a foreign player (OpenAI, "
+    "Anthropic, Nvidia, etc.) appears in the source articles, you only cover them through "
+    "the lens of their direct interaction with China (regulatory action, JV, market entry, "
+    "competitive response from a Chinese player).\n"
+    "- If an article is purely about a non-Chinese company with no China angle, ignore it.\n\n"
     "WRITING PHILOSOPHY:\n"
     "- AI is a powerful general-purpose technology that is genuinely changing many aspects "
     "of business, daily life, and social structure — but it is evolving steadily, not "
     "explosively. Do not create FOMO or treat AI as an almighty force. Avoid hype and "
     "breathless superlatives.\n"
-    "- Your goal is to record and recognize real AI progress from a pragmatic standpoint: "
-    "anchor every claim in actual user cases, commercial outcomes, measurable data, or "
+    "- Anchor every claim in actual user cases, commercial outcomes, measurable data, or "
     "concrete social change. If evidence is thin, say so.\n"
     "- Demystify jargon. When you use technical or trending terms (e.g. 'inference scaling', "
     "'RAG', 'multimodal'), briefly put them in plain business or daily-life terms so a "
@@ -195,57 +206,70 @@ SYSTEM_PROMPT = (
 )
 
 DIGEST_PROMPT_TEMPLATE = """\
-Today is {today_bj} (Beijing time). You are writing the SinoArk Daily AI Digest.
+Today is {today_bj} (Beijing time). You are writing the SinoArk Daily China-AI Digest.
 
 The digest covers articles published between {start_label} and {end_label} (Beijing time).
-These articles are from Chinese WeChat official accounts covering AI, technology, and industry.
+These articles have already been pre-filtered to be specifically about CHINA-related
+AI subjects (Chinese companies, Chinese people, Chinese policy, Chinese markets).
 
 ARTICLES ({num_articles} articles):
 {articles_text}
 
 ---
 
-Write a comprehensive Daily AI Digest in English as structured HTML.
+Write a Daily China-AI Digest in English as structured HTML, using EXACTLY the four
+sections below in order.
 
-REQUIREMENTS:
-- Write in HTML only (no markdown, no <html>/<head>/<body> wrapper tags)
-- Use <h2> for section headings (include the emoji prefix)
-- Use <p>, <ul>, <li>, <strong>, <em> for content
+GLOBAL REQUIREMENTS:
+- HTML only, no markdown, no <html>/<head>/<body> wrapper tags
+- Use <h2> for section headings (with emoji), <h3> for sub-headings inside Deep Dive and Profiles
+- Use <p>, <ul>, <ol>, <li>, <strong>, <em> for content
 - For EVERY article reference, use a hyperlink: <a href="URL" target="_blank" rel="noopener">anchor text</a>
-- Each section must reference 2–5 of the most relevant articles with hyperlinks
-- Be analytical and grounded, not hype-driven. No FOMO language ("revolutionary", "game-changer", "AGI is here").
-- Ground every point in real cases, commercial outcomes, or data — not just announcements or promises
-- When you use a technical term or buzzword, immediately follow it with a plain-language parenthetical so non-technical readers understand the actual impact
-- An AI skeptic reading this should finish each section feeling informed and connected — not alarmed or left behind
-- Show implications for AI development in China and globally, with measured perspective on pace and scale
+- Be analytical and grounded; no FOMO language; ground every point in real cases or data
+- Plain-language gloss when introducing technical terms
+- Total target: ~900 words across all four sections
 
-SECTIONS TO WRITE (keep each section concise — total ~800 words target):
+SECTION 1 — TRENDING
+<h2>📈 Trending Today</h2>
+Identify 1–2 topics that dominate today's articles. A "topic" is a tight theme
+(e.g., "DeepSeek-V4 release", "Beijing AI safety draft regulation", "Bytedance Doubao
+enterprise rollout"), not a broad category like "AI chips".
+Render as an <ol> with one <li> per topic; each <li> is a single sentence:
+"<strong>Topic name</strong> — what it is and why it dominates today."
+Pick topics by counting article overlap; if only one clear topic exists, return one <li>.
 
-<h2>🔑 Three Keywords Today</h2>
-3 terms or themes dominating today's AI discourse. Per keyword (2-3 sentences):
-define it in plain language first (what it actually means for a business or person),
-then why it is trending today (with hyperlink), and what practical implication it carries.
-Use 3 numbered <li> items. ~180 words max for this section.
+SECTION 2 — DEEP DIVE
+For EACH topic listed in Section 1, produce a Deep Dive subsection:
+<h2>🔍 Deep Dive: [Topic name]</h2>
+2–3 short paragraphs (~120–160 words per topic). Synthesize across the relevant articles:
+what happened, who is involved (named Chinese companies / people), commercial or policy
+implication, and the broader China-AI context (e.g., how this fits with prior moves by the
+same player or with regulator behavior). Hyperlink at least 2 source articles inline.
+Avoid restating the topic intro — go deeper.
 
-<h2>🏢 Big Company Updates</h2>
-Bullet <li> list of major company moves. Per item: 1–2 sentences + hyperlink.
-Chinese AI companies first, then global players. ~180 words max.
+SECTION 3 — TODAY'S NEWS
+<h2>📰 Today's News</h2>
+A bulleted <ul> of OTHER notable China-AI news from today that did not become a Deep Dive
+topic. Each <li>: 1 sentence + hyperlink. Aim for 6–10 bullets covering distinct stories
+across companies, products, policy, funding, infrastructure, and applications. Order by
+significance, not chronology. Skip near-duplicates of Deep Dive items.
 
-<h2>👤 Key Persons</h2>
-Bullet <li> list. Per person: name + what they said/did + hyperlink.
-~120 words max.
+SECTION 4 — PROFILES
+<h2>👥 Profiles</h2>
+Pick exactly ONE Chinese company and ONE Chinese person who feature prominently in
+today's articles. Render two sub-blocks:
 
-<h2>🏭 AI in Industry: Case Studies</h2>
-Up to 5 of the most concrete AI deployments or applications. Per case (2-3 sentences):
-what industry, what specific problem is being solved, what measurable result or commercial signal exists,
-and — in plain words — what this means for workers, customers, or the business.
-Skip cases that are pure announcements with no real-world evidence. ~220 words max.
+<h3>Company to Know: [Chinese name + English name if useful]</h3>
+2–3 sentences. What they do, why they matter today, one concrete recent move
+(hyperlink the source article that shows it). Plain-language gloss on any jargon.
 
-<h2>⚡ Noteworthy</h2>
-ONLY if significant: breakthroughs, cybersecurity, ethics, regulation, major events.
-Max 3 bullet points. If nothing: <p><em>Nothing major today.</em></p>
+<h3>Person to Know: [Name]</h3>
+2–3 sentences. Their role, their company / institution, what they said or did today
+(hyperlinked source). If multiple candidates, prefer someone whose action is concrete
+(launch, statement, deal) rather than a passive mention.
 
-OUTPUT: HTML only. No wrapper tags. Start directly with first <h2>. No preamble.
+OUTPUT: HTML only. No wrapper tags. Start directly with the first <h2>. No preamble or
+trailing remarks.
 """
 
 
@@ -277,8 +301,8 @@ def build_articles_text(articles: list[dict]) -> str:
     return '\n'.join(lines)
 
 
-def generate_digest_html(articles: list[dict], window_start: datetime, window_end: datetime, dry_run: bool = False) -> str:
-    """Call Gemini to generate the digest HTML."""
+def generate_digest_html(articles: list[dict], window_start: datetime, window_end: datetime, dry_run: bool = False) -> tuple[str, str]:
+    """Call Gemini to generate the digest HTML. Returns (html, prompt)."""
 
     today_bj = datetime.now(BEIJING_TZ).strftime('%A, %B %-d, %Y')
     start_label = window_start.astimezone(BEIJING_TZ).strftime('%I:%M %p %B %-d')
@@ -301,7 +325,7 @@ def generate_digest_html(articles: list[dict], window_start: datetime, window_en
         print(prompt[:3000])
         print('...(truncated)')
         print('=' * 60)
-        return '<p><em>Dry run — no Gemini call made.</em></p>'
+        return '<p><em>Dry run — no Gemini call made.</em></p>', prompt
 
     print(f'\nCalling Gemini with {len(articles)} articles...')
     client = genai.Client(api_key=GEMINI_API_KEY)
@@ -332,42 +356,63 @@ def generate_digest_html(articles: list[dict], window_start: datetime, window_en
     if m:
         raw = raw[m.start():]
 
-    return raw.strip()
+    return raw.strip(), prompt
 
 
 # ── Output ────────────────────────────────────────────────────────────────────
 
-def save_digest(date_label: str, html_content: str, articles_used: list[dict], window_start: datetime, window_end: datetime):
-    """Save digest to public/digests/<date>.json and update latest.json."""
+def save_digest(date_label: str, html_content: str, articles_used: list[dict],
+                 window_start: datetime, window_end: datetime, llm_prompt: str):
+    """Save digest to Supabase digests table and local JSON files."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     # Build article index for the digest metadata
     article_index = [
         {
+            'id': a.get('id', ''),
             'title': a.get('original_title', ''),
             'url': a.get('original_url', ''),
-            'source': a.get('source_name') or '',
+            'source_name': a.get('source_name') or '',
             'published_at': a.get('published_at', ''),
         }
         for a in articles_used
     ]
 
+    generated_at = datetime.now(timezone.utc).isoformat()
+
+    # Save to Supabase digests table
+    client = create_client(SUPABASE_URL, SUPABASE_KEY)
+    row = {
+        'digest_date': date_label,
+        'window_start': window_start.isoformat(),
+        'window_end': window_end.isoformat(),
+        'html_content': html_content,
+        'articles_count': len(articles_used),
+        'generated_at': generated_at,
+        'source_articles': article_index,
+        'llm_prompt': llm_prompt,
+    }
+    try:
+        client.table('digests').upsert(row, on_conflict='digest_date').execute()
+        print(f'\nSaved to Supabase digests table (date={date_label})')
+    except Exception as e:
+        print(f'\nWARN: Failed to save to Supabase digests table: {e}')
+
+    # Save local JSON files (fallback for Vercel static serving)
     payload = {
         'date': date_label,
         'window_start': window_start.isoformat(),
         'window_end': window_end.isoformat(),
-        'generated_at': datetime.now(timezone.utc).isoformat(),
+        'generated_at': generated_at,
         'articles_count': len(articles_used),
         'html_content': html_content,
         'articles': article_index,
     }
 
-    # Save dated file
     dated_path = OUTPUT_DIR / f'{date_label}.json'
     dated_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2))
-    print(f'\nSaved: {dated_path}')
+    print(f'Saved: {dated_path}')
 
-    # Update latest.json
     latest_path = OUTPUT_DIR / 'latest.json'
     latest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2))
     print(f'Updated: {latest_path}')
@@ -415,10 +460,10 @@ def main():
         print('Warning: Very few articles found. Digest quality may be limited.')
 
     # Generate digest
-    html_content = generate_digest_html(selected, window_start, window_end, dry_run=args.dry_run)
+    html_content, llm_prompt = generate_digest_html(selected, window_start, window_end, dry_run=args.dry_run)
 
     if not args.dry_run:
-        result = save_digest(date_label, html_content, selected, window_start, window_end)
+        result = save_digest(date_label, html_content, selected, window_start, window_end, llm_prompt)
         print(f'\nDigest generated successfully!')
         print(f'  Articles used: {result["articles_count"]}')
         print(f'  Output: {OUTPUT_DIR}/{date_label}.json')
